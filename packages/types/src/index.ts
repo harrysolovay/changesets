@@ -52,12 +52,19 @@ export type PackageJSON = {
 
 export type Linked = ReadonlyArray<ReadonlyArray<string>>;
 
+export type MessageFormatter = (
+  type: string,
+  description: string,
+  scope?: string
+) => string;
+
 export type Config = {
   changelog: false | readonly [string, any];
   commit: boolean;
   linked: Linked;
   access: AccessType;
   baseBranch: string;
+  messageFormatter: MessageFormatter;
 };
 
 export type WrittenConfig = {
@@ -66,6 +73,7 @@ export type WrittenConfig = {
   linked?: Linked;
   access?: AccessType;
   baseBranch?: string;
+  messageFormatter?: string;
 };
 
 export type Workspace = { config: PackageJSON; name: string; dir: string };

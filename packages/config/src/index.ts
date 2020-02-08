@@ -2,7 +2,12 @@ import * as fs from "fs-extra";
 import path from "path";
 import { ValidationError } from "@changesets/errors";
 import { warn } from "@changesets/logger";
-import { Config, WrittenConfig, Workspace } from "@changesets/types";
+import {
+  Config,
+  WrittenConfig,
+  Workspace,
+  MessageFormatter
+} from "@changesets/types";
 import packageJson from "../package.json";
 
 export let defaultWrittenConfig = {
@@ -13,6 +18,9 @@ export let defaultWrittenConfig = {
   access: "restricted",
   baseBranch: "master"
 } as const;
+
+const defaultMessageFormatter: MessageFormatter = (type, description, scope) =>
+  `${type}${scope ? `(${scope})` : ""}: ${description}`;
 
 function getNormalisedChangelogOption(
   thing: false | readonly [string, any] | string
@@ -138,12 +146,69 @@ export let parse = (
       }
     }
   }
+
+  const getMessageFormatterFromModule = (
+    mod:
+      | MessageFormatter
+      | { default?: MessageFormatter; messageFormatter?: MessageFormatter }
+  ): MessageFormatter | undefined =>
+    typeof mod === "function" ? mod : mod.default || mod.messageFormatter;
+
+  let messageFormatter: MessageFormatter = defaultMessageFormatter;
+
+  if (json.messageFormatter) {
+    if (typeof json.messageFormatter === "string") {
+      try {
+        const retrievedRelativeToChangesetsConfig = getMessageFormatterFromModule(
+          require(path.join(
+            process.cwd(),
+            ".changesets",
+            json.messageFormatter
+          ))
+        );
+        if (typeof retrievedRelativeToChangesetsConfig === "function") {
+          messageFormatter = retrievedRelativeToChangesetsConfig;
+        } else {
+          messages.push(
+            `Could not resolve the specified message formatter relative to the ".changesets" folder`
+          );
+        }
+      } catch (changesetsRelativeRequireError) {
+        try {
+          const retrievedFromNodeModules = getMessageFormatterFromModule(
+            require(path.join("node_modules", json.messageFormatter))
+          );
+          if (typeof retrievedFromNodeModules === "function") {
+            messageFormatter = retrievedFromNodeModules;
+          } else {
+            messages.push(
+              `Could not resolve the specified message formatter from "node_modules"`
+            );
+          }
+        } catch (nodeModulesRelativeRequireError) {
+          messages.push(
+            `Could not resolve the specified message formatter relative to the ".changesets" folder nor the "node_modules" folder`
+          );
+        }
+      }
+    } else {
+      messages.push(
+        `The \`messageFormatter\` option is set as ${JSON.stringify(
+          json.messageFormatter,
+          null,
+          2
+        )} when the only valid values are undefined or of type \`string\``
+      );
+    }
+  }
+
   if (messages.length) {
     throw new ValidationError(
       `Some errors occurred when validating the changesets config:\n` +
         messages.join("\n")
     );
   }
+
   let config: Config = {
     changelog: getNormalisedChangelogOption(
       json.changelog === undefined
@@ -161,7 +226,8 @@ export let parse = (
     baseBranch:
       json.baseBranch === undefined
         ? defaultWrittenConfig.baseBranch
-        : json.baseBranch
+        : json.baseBranch,
+    messageFormatter
   };
   return config;
 };
